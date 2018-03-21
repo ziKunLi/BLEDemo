@@ -54,6 +54,7 @@ public class BLEDeviceActivity extends AppCompatActivity{
      * 用于发送数据
      */
     private BluetoothGattCharacteristic characteristic;
+    private BluetoothGattCharacteristic notifyCharacteristic;
     private PopupWindow servicePop;
     private ExpandableListView expandableListView;
     private List<BluetoothGattService> bluetoothGattServiceList;
@@ -84,11 +85,15 @@ public class BLEDeviceActivity extends AppCompatActivity{
             }
             else if(action.equals(StaticDataPool.ACTION_SERVICE_DISCOVERED)){
                 Toast.makeText(context, "连接成功！", Toast.LENGTH_SHORT).show();
-                connectingPop.dismiss();
+                if(connectingPop != null){
+                    connectingPop.dismiss();
+                }
             }
             else if(action.equals(StaticDataPool.ACTION_SERVICE_DISCOVERED_FILED)){
                 Toast.makeText(context, "连接失败！", Toast.LENGTH_SHORT).show();
-                connectingPop.dismiss();
+                if(connectingPop != null){
+                    connectingPop.dismiss();
+                }
             }
         }
     };
@@ -104,7 +109,9 @@ public class BLEDeviceActivity extends AppCompatActivity{
          */
         @Override
         public void onServiceConnected(ComponentName componentName, IBinder service) {
+            LogUtil.v("绑定成功:" + service.toString());
             bleService = ((BLEService.LocalBind) service).getService();
+            StaticDataPool.bleService = bleService;
             bleService.init();
             bleService.connect(address);
             showConnectingPop();
@@ -124,11 +131,25 @@ public class BLEDeviceActivity extends AppCompatActivity{
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.transfer_activity);
+        LogUtil.v("BLEDeviceActivity onCreate");
         initData();
         initView();
         initListener();
         initBroadcastReceiver();
         initService();
+        LogUtil.v("" + Thread.currentThread().getId());
+    }
+
+    @Override
+    public void onStart(){
+        super.onStart();
+        LogUtil.v("BLEDeviceActivity onStart");
+    }
+
+    @Override
+    public void onResume(){
+        super.onResume();
+        LogUtil.v("BLEDeviceActivity onResume");
     }
 
     public void initData(){
@@ -161,8 +182,15 @@ public class BLEDeviceActivity extends AppCompatActivity{
      * 初始化服务，绑定服务
      */
     public void initService(){
-        Intent intent = new Intent(this,BLEService.class);
-        bindService(intent,serviceConnection,BIND_AUTO_CREATE);
+        if(StaticDataPool.bleService == null){
+            LogUtil.v("开始绑定");
+            Intent intent = new Intent(MyApplication.getContext(),BLEService.class);
+            bindService(intent,serviceConnection,BIND_AUTO_CREATE);
+        }
+        else{
+            this.bleService = StaticDataPool.bleService;
+            this.characteristic = StaticDataPool.characteristic;
+        }
     }
 
     public void send(View view){
@@ -227,8 +255,23 @@ public class BLEDeviceActivity extends AppCompatActivity{
 
                 @Override
                 public void onChildItemClick(int groupPosition, int childPosition) {
-                    characteristic = bluetoothGattServiceList.get(groupPosition).getCharacteristic(UUID.fromString(child.get(groupPosition).get(childPosition)));
-                    Toast.makeText(bleService, "子项： " + child.get(groupPosition).get(childPosition), Toast.LENGTH_SHORT).show();
+                    BluetoothGattCharacteristic tempCharacteristic = bluetoothGattServiceList.get(groupPosition).getCharacteristic(UUID.fromString(child.get(groupPosition).get(childPosition)));
+                    LogUtil.v(bluetoothGattServiceList.get(groupPosition).getType() + " " + bluetoothGattServiceList.get(groupPosition).getUuid());
+                    int charaProp = tempCharacteristic.getProperties();
+                    LogUtil.v(tempCharacteristic.getProperties() + " : " + tempCharacteristic.getPermissions());
+                    LogUtil.v("" + charaProp);
+//                    LogUtil.v("" + BluetoothGattCharacteristic.PROPERTY_READ);
+//                    LogUtil.v("" + BluetoothGattCharacteristic.PROPERTY_NOTIFY);
+//                    LogUtil.v("" + (charaProp | BluetoothGattCharacteristic.PROPERTY_READ));
+//                    LogUtil.v("" + (charaProp | BluetoothGattCharacteristic.PROPERTY_NOTIFY));
+                    if(UUID.fromString(StaticDataPool.SIMPLE_PROFILE_CHAR5_UUID).equals(tempCharacteristic.getUuid())){
+                        characteristic = tempCharacteristic;
+                        StaticDataPool.characteristic = tempCharacteristic;
+                    }
+                    else{
+                        bleService.setCharacteristicNotification(tempCharacteristic);
+                    }
+
                     servicePop.dismiss();
                 }
             });
@@ -274,8 +317,8 @@ public class BLEDeviceActivity extends AppCompatActivity{
     @Override
     public void onDestroy(){
         super.onDestroy();
-        unbindService(serviceConnection);
         unregisterReceiver(broadcastReceiver);
+        LogUtil.v("onDestroy");
     }
 
     /**
